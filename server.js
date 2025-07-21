@@ -50,7 +50,7 @@ passport.use(new DiscordStrategy({
         clientSecret: process.env.DISCORD_CLIENT_SECRET,
         // Esta es la URL a la que Discord redirigirá DESPUÉS de la autorización.
         // Debe ser la URL de tu backend desplegado en Render, seguida de /auth/discord/callback.
-        callbackURL: `${RENDER_BACKEND_URL}/auth/discord/callback`,
+        callbackURL: process.env.DISCORD_CALLBACK_URL,
         scope: ['identify', 'email', 'guilds'] // Permisos que solicitas a Discord (ej. ID de usuario, email, servidores)
     },
     function(accessToken, refreshToken, profile, cb) {
