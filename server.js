@@ -55,14 +55,17 @@ const verifyToken = (req, res, next) => {
     // Busca el token en el encabezado Authorization (Bearer Token)
     const authHeader = req.headers['authorization'];
     if (!authHeader) {
+        // Si no hay encabezado Authorization, no hay token.
+        // req.user seguirá siendo undefined.
         // console.log('No Authorization header provided.'); // Para depuración
-        return next(); // Opcional: permitir pasar si no hay token para rutas públicas
+        return next();
     }
 
     const token = authHeader.split(' ')[1]; // El token es la segunda parte (Bearer TOKEN)
     if (!token) {
+        // Si hay encabezado pero no token (ej. "Bearer "), req.user seguirá siendo undefined.
         // console.log('No token found in Authorization header.'); // Para depuración
-        return next(); // Opcional: permitir pasar si no hay token
+        return next();
     }
 
     // Verificar el token usando la misma clave secreta con la que se firmó
@@ -70,7 +73,8 @@ const verifyToken = (req, res, next) => {
         if (err) {
             console.error('JWT Verification Error:', err.message);
             // Si el token es inválido o ha expirado, no autenticamos al usuario
-            return next(); // Opcional: permitir pasar si token es inválido, para que req.user sea undefined
+            // req.user seguirá siendo undefined.
+            return next();
         }
         // Si el token es válido, adjuntamos la información del usuario al objeto de solicitud
         req.user = user;
@@ -80,6 +84,7 @@ const verifyToken = (req, res, next) => {
 };
 
 // Aplica el middleware verifyToken a todas las rutas que necesiten autenticación
+// Este middleware DEBE ir ANTES de las rutas que deseas proteger.
 app.use(verifyToken);
 
 
@@ -106,9 +111,16 @@ app.get('/auth/discord/callback',
         console.log('Usuario de Discord (req.user):', req.user.username);
 
         // Generar un JWT para el usuario autenticado
-        // Usa una clave secreta FUERTE y ALMACENADA EN VARIABLES DE ENTORNO
+        // Asegúrate de incluir cualquier dato relevante que el frontend pueda necesitar.
+        // `profile._json.guilds` contiene la lista de gremios si se solicitó el scope 'guilds'.
         const token = jwt.sign(
-            { id: req.user.id, username: req.user.username, discriminator: req.user.discriminator, avatar: req.user.avatar },
+            { 
+                id: req.user.id,
+                username: req.user.username,
+                discriminator: req.user.discriminator,
+                avatar: req.user.avatar,
+                guilds: req.user.guilds || [] // Incluye los gremios si están disponibles
+            },
             process.env.JWT_SECRET,
             { expiresIn: '1h' } // El token expirará en 1 hora
         );
@@ -120,7 +132,7 @@ app.get('/auth/discord/callback',
     }
 );
 
-// Ruta para obtener la información del usuario logueado
+// Ruta para obtener la información del usuario logueado (pública pero muestra datos si logueado)
 app.get('/api/user', (req, res) => {
     console.log('--- Solicitud a /api/user ---');
     if (req.user) { // req.user es establecido por nuestro middleware verifyToken si el JWT es válido
@@ -131,6 +143,7 @@ app.get('/api/user', (req, res) => {
             username: req.user.username,
             discriminator: req.user.discriminator,
             avatar: req.user.avatar,
+            guilds: req.user.guilds || [] // Incluye los gremios en la respuesta
         });
     } else {
         console.log('Usuario NO autenticado por JWT.');
@@ -143,12 +156,53 @@ app.get('/auth/logout', (req, res) => {
     console.log('--- Solicitud de cierre de sesión ---');
     // Con JWT, el logout es manejado principalmente por el cliente (frontend)
     // que elimina el token de su almacenamiento local.
-    // Aquí solo respondemos con un mensaje o redirigimos.
+    // Aquí solo respondemos con un mensaje de éxito.
     res.status(200).json({ message: 'Sesión cerrada exitosamente (token eliminado del cliente).' });
-    // O si prefieres una redirección directa (menos común para logout de JWT)
-    // res.redirect(FRONTEND_URL);
 });
 
+// Ruta de ejemplo que SOLO es accesible si el usuario está autenticado
+app.get('/api/protected-data', (req, res) => {
+    console.log('--- Solicitud a /api/protected-data ---');
+    if (req.user) {
+        console.log('Acceso a /api/protected-data concedido para:', req.user.username);
+        res.json({
+            message: `¡Hola, ${req.user.username}! Estos son datos que solo un usuario autenticado puede ver.`,
+            sensitiveInfo: {
+                secretCode: 'XYZ123ABC',
+                lastLogin: new Date().toISOString()
+            }
+        });
+    } else {
+        console.log('Acceso a /api/protected-data denegado: Usuario no autenticado.');
+        // Envía un estado 401 (Unauthorized) si no hay un token válido
+        res.status(401).json({ message: 'Acceso no autorizado. Necesitas iniciar sesión para ver esto.' });
+    }
+});
+
+// Ruta de ejemplo para obtener los gremios del usuario (requiere autenticación y el scope 'guilds')
+app.get('/api/user-guilds', (req, res) => {
+    console.log('--- Solicitud a /api/user-guilds ---');
+    if (req.user && req.user.guilds) {
+        console.log('Acceso a /api/user-guilds concedido para:', req.user.username);
+        // Puedes filtrar o transformar los datos de gremios aquí si es necesario
+        res.json({
+            message: `Gremios para ${req.user.username}:`,
+            guilds: req.user.guilds.map(guild => ({
+                id: guild.id,
+                name: guild.name,
+                owner: guild.owner
+                // Puedes añadir más campos si los necesitas y si Discord los proporciona en el profile
+            }))
+        });
+    } else if (req.user) {
+        console.log('Acceso a /api/user-guilds denegado: Token válido pero sin datos de gremios (¿faltó el scope?).');
+        res.status(403).json({ message: 'Acceso prohibido: No se encontraron datos de gremios para tu cuenta. Asegúrate de haber concedido los permisos de gremios.' });
+    }
+    else {
+        console.log('Acceso a /api/user-guilds denegado: Usuario no autenticado.');
+        res.status(401).json({ message: 'Acceso no autorizado. Necesitas iniciar sesión para ver tus gremios.' });
+    }
+});
 
 // Iniciar el servidor
 app.listen(PORT, () => {
