@@ -12,14 +12,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Esta será la URL de tu backend desplegado en Render.
-const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `http://localhost:${PORT}`;
+const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com`;
 // Esta será la URL de tu frontend de GitHub Pages.
 const FRONTEND_URL = 'https://guerramundialz.github.io'; // <--- ¡Tu URL de GitHub Pages!
 
 // NUEVO: IDs de Discord de los administradores. ¡CAMBIA ESTO CON LOS IDs REALES!
 // Puedes obtener tu ID de Discord activando el "Modo Desarrollador" en Discord (Ajustes de Usuario -> Avanzado)
 // y luego haciendo clic derecho en tu nombre de usuario y seleccionando "Copiar ID".
-const ADMIN_DISCORD_IDS = ['954100893366775870', 'TU_ID_DE_ADMIN_DISCORD_2']; // <-- ¡MODIFICA ESTO!
+const ADMIN_DISCORD_IDS = ['954100893366775870', '652900302412054571']; // <-- ¡MODIFICA ESTO!
 
 // NUEVO: URL del Webhook de Discord para notificaciones de subastas.
 // Configura esto en Render como variable de entorno.
@@ -198,7 +198,7 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
                     embeds: [{
                         title: `Subasta Finalizada: ${auction.title}`,
                         description: auction.currentBidderId ? `Ganador: **${auction.currentBidderName}**\nPuja Final: **${auction.currentBid} Rublos**` : 'No hubo pujas.',
-                        url: `$https://guerramundialz.github.io/#auctions`, // <-- ¡Asegúrate de que esta URL sea correcta!
+                        url: `https://guerramundialz.github.io/#auctions`, // <-- ¡Asegúrate de que esta URL sea correcta!
                         color: embedColor,
                         thumbnail: { url: auction.imageUrl || 'https://via.placeholder.com/150' },
                         footer: { text: `Subasta ID: ${auction._id}` }
