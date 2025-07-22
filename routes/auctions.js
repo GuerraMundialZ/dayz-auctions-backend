@@ -60,7 +60,7 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
                 embeds: [{
                     title: newAuction.title,
                     description: newAuction.description,
-                    url: `${FRONTEND_URL}/#auctions`, // URL CORRECTA
+                    url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
                     color: 15158332, // Un color vibrante para Discord
                     image: { url: newAuction.imageUrl }, // Usar la URL que ya tiene el default
                     fields: [
@@ -132,7 +132,7 @@ router.post('/:id/bid', authenticateToken, async (req, res) => {
                 embeds: [{
                     title: `Nueva Puja en ${auction.title}`,
                     description: `**${req.user.username}** ha pujado **${bidAmount} Rublos**.\nPuja anterior: **${oldBid} Rublos**\nNueva puja: **${auction.currentBid} Rublos**`,
-                    url: `${FRONTEND_URL}/#auctions`, // URL CORRECTA
+                    url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
                     color: 3447003, // Color azul para Discord
                     thumbnail: { url: req.user.avatar ? `https://cdn.discordapp.com/avatars/${req.user.id}/${req.user.avatar}.png` : `https://cdn.discordapp.com/embed/avatars/${parseInt(req.user.id) % 5}.png` },
                     footer: { text: `Finaliza el <t:${Math.floor(auction.endDate.getTime() / 1000)}:R>` }

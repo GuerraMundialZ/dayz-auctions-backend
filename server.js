@@ -178,7 +178,7 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
                     embeds: [{
                         title: `Subasta Finalizada: ${auction.title}`,
                         description: auction.currentBidderId ? `Ganador: **${auction.currentBidderName}**\nPuja Final: **${auction.currentBid} Rublos**` : 'No hubo pujas.',
-                        url: `${FRONTEND_URL}/#auctions`, // URL CORRECTA
+                        url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
                         color: embedColor,
                         thumbnail: { url: auction.imageUrl || 'https://via.placeholder.com/150' },
                         footer: { text: `Subasta ID: ${auction._id}` }
