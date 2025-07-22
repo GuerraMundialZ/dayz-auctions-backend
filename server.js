@@ -6,7 +6,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
-const axios = require('axios'); // Asegúrate de que axios esté instalado (npm install axios)
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,14 +16,8 @@ const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mun
 // Esta será la URL de tu frontend de GitHub Pages.
 const FRONTEND_URL = 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
 
-// --- CAMBIO AQUI ---
-// No necesitamos ADMIN_DISCORD_IDS aquí en server.js directamente.
-// La verificación de roles de administrador se hará comparando los roles
-// que Discord nos da contra una lista de roles de administrador definida
-// en el middleware de autorización, que es más robusto.
-// const ADMIN_DISCORD_IDS = ['954100893366775870', '652900302412054571']; // <-- ¡SE ELIMINA ESTO!
-// --- FIN CAMBIO ---
-
+// IDs de Discord de los administradores. ¡CAMBIA ESTO CON LOS IDs REALES!
+const ADMIN_DISCORD_IDS = ['954100893366775870', '652900302412054571']; // <-- ¡CONFIRMA ESTOS IDs!
 
 // URL del Webhook de Discord para notificaciones.
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
@@ -43,57 +37,29 @@ app.use(express.json());
 app.use(passport.initialize());
 
 // --- Configuración de la estrategia de Discord ---
-// CAMBIO AQUI: Añadido 'guilds.members.read' al scope
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
     callbackURL: process.env.DISCORD_CALLBACK_URL, // Debe coincidir con la URL en Discord Dev Portal
-    scope: ['identify', 'email', 'guilds', 'guilds.members.read'] // <-- CAMBIO AQUI: AGREGADO 'guilds.members.read'
+    scope: ['identify', 'email', 'guilds']
 },
-async function(accessToken, refreshToken, profile, cb) { // <-- CAMBIO AQUI: `async` para usar await
+function(accessToken, refreshToken, profile, cb) {
     console.log('--- Passport Callback Iniciado ---');
     console.log('Profile ID:', profile.id);
     console.log('Profile Username:', profile.username);
 
-    // --- CAMBIO AQUI: Obtener roles reales del servidor de Discord ---
-    let userDiscordRoles = [];
-    const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID; // Se accede a la variable de entorno aquí
-
-    if (DISCORD_GUILD_ID) {
-        try {
-            // Realizar una petición a la API de Discord para obtener los detalles del miembro en el gremio (servidor)
-            const guildMemberResponse = await axios.get(`https://discord.com/api/users/@me/guilds/${DISCORD_GUILD_ID}/member`, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`, // Usamos el accessToken del usuario
-                },
-            });
-
-            if (guildMemberResponse.status === 200) {
-                userDiscordRoles = guildMemberResponse.data.roles; // Esto es un array de IDs de rol de Discord
-                console.log(`Roles de Discord obtenidos para ${profile.username}:`, userDiscordRoles);
-            } else {
-                console.warn(`No se pudieron obtener los roles para el usuario ${profile.username} en el servidor ${DISCORD_GUILD_ID}. Código de estado: ${guildMemberResponse.status}`);
-                // userDiscordRoles permanecerá vacío
-            }
-        } catch (error) {
-            console.error('Error al intentar obtener roles de Discord desde el backend:', error.message);
-            // userDiscordRoles permanecerá vacío en caso de error
-        }
-    } else {
-        console.warn("ADVERTENCIA: DISCORD_GUILD_ID no está configurado en las variables de entorno. No se verificarán los roles de Discord.");
-    }
-    // --- FIN CAMBIO AQUI ---
-
-    // Adjuntar los roles obtenidos (o vacío) al perfil.
-    profile.roles = userDiscordRoles; // <-- CAMBIO AQUI: Ahora usa los roles reales de Discord
+    // Determinar si el usuario es administrador basado en su ID de Discord
+    const roles = ADMIN_DISCORD_IDS.includes(profile.id) ? ['user', 'admin'] : ['user'];
+    profile.roles = roles; // Añadir los roles al perfil de Discord
 
     return cb(null, profile);
 }));
 
 // --- Importación de Middlewares de Autenticación y Autorización ---
 // Ahora se importan desde un archivo separado para mejor modularidad.
-// CAMBIO AQUI: auth.js debe contener la lógica de `JWT_SECRET` y los `ADMIN_DISCORD_ROLE_IDS`
 const { authenticateToken, authorizeAdmin } = require('./middleware/auth');
+// NOTA: 'authenticateToken' ya se aplicará globalmente más abajo.
+// 'authorizeAdmin' se usará específicamente en las rutas que lo requieran.
 
 
 // Aplica el middleware authenticateToken a TODAS las rutas para parsear el JWT si existe.
@@ -128,23 +94,16 @@ app.get('/auth/discord/callback',
     }),
     function(req, res) {
         console.log('--- Autenticación Exitosa en Backend (Discord) ---');
-        // req.user ahora tiene profile.roles con los IDs de rol de Discord
         console.log('Usuario de Discord (req.user):', req.user.username, 'Roles:', req.user.roles);
 
         // Generar un JWT para el usuario autenticado, incluyendo los roles
-        // CAMBIO AQUI: Asegurarse de que process.env.JWT_SECRET esté accesible
-        if (!process.env.JWT_SECRET) {
-            console.error("ERROR: JWT_SECRET no está definido. No se puede generar el token JWT.");
-            return res.status(500).send("Error de configuración del servidor.");
-        }
-
         const token = jwt.sign(
             {
                 id: req.user.id,
                 username: req.user.username,
                 discriminator: req.user.discriminator,
                 avatar: req.user.avatar,
-                roles: req.user.roles // <-- ¡Este es el array de IDs de rol de Discord!
+                roles: req.user.roles // Incluir los roles en el JWT
             },
             process.env.JWT_SECRET,
             { expiresIn: '1h' } // Token expira en 1 hora
@@ -236,5 +195,5 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
 // Iniciar el servidor
 app.listen(PORT, () => {
     console.log(`Servidor backend escuchando en ${RENDER_BACKEND_URL}`);
-    console.log('Asegúrate de que las variables de entorno de Render (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_CALLBACK_URL, JWT_SECRET, MONGODB_URI, DISCORD_WEBHOOK_URL, DISCORD_GUILD_ID) sean correctas.');
+    console.log('Asegúrate de que las variables de entorno de Render (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_CALLBACK_URL, JWT_SECRET, MONGODB_URI, DISCORD_WEBHOOK_URL) sean correctas.');
 });
