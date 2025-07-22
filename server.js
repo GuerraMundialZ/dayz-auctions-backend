@@ -6,7 +6,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
-const axios = require('axios');
+const axios = require('axios'); // Necesario para hacer llamadas a la API de Discord
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,8 +16,9 @@ const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mun
 // Esta será la URL de tu frontend de GitHub Pages.
 const FRONTEND_URL = 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
 
-// IDs de Discord de los administradores. ¡CAMBIA ESTO CON LOS IDs REALES!
-const ADMIN_DISCORD_IDS = ['954100893366775870', '652900302412054571']; // <-- ¡CONFIRMA ESTOS IDs!
+// ¡IMPORTANTE! Reemplaza con el ID de tu SERVIDOR (GUILD) de Discord.
+// Necesario para verificar los roles del usuario en ese servidor.
+const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || 'TU_ID_DE_SERVIDOR_DISCORD_AQUI'; // <-- ¡CONFIRMA ESTE ID!
 
 // URL del Webhook de Discord para notificaciones.
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
@@ -41,30 +42,56 @@ passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
     callbackURL: process.env.DISCORD_CALLBACK_URL, // Debe coincidir con la URL en Discord Dev Portal
-    scope: ['identify', 'email', 'guilds']
+    // ¡IMPORTANTE! Añadido 'guilds.members.read' para obtener los roles del usuario en un gremio
+    scope: ['identify', 'email', 'guilds', 'guilds.members.read']
 },
-function(accessToken, refreshToken, profile, cb) {
+async function(accessToken, refreshToken, profile, cb) {
     console.log('--- Passport Callback Iniciado ---');
     console.log('Profile ID:', profile.id);
     console.log('Profile Username:', profile.username);
 
-    // Determinar si el usuario es administrador basado en su ID de Discord
-    const roles = ADMIN_DISCORD_IDS.includes(profile.id) ? ['user', 'admin'] : ['user'];
-    profile.roles = roles; // Añadir los roles al perfil de Discord
+    let isAdminUser = false;
+    let userGuildRoles = []; // Almacenará los IDs de los roles del usuario en el gremio
+
+    try {
+        // Hacemos una llamada a la API de Discord para obtener los roles del usuario en el gremio específico
+        const guildMemberResponse = await axios.get(
+            `https://discord.com/api/users/@me/guilds/${DISCORD_GUILD_ID}/member`,
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`
+                }
+            }
+        );
+
+        // Los roles del usuario en el gremio están en guildMemberResponse.data.roles
+        userGuildRoles = guildMemberResponse.data.roles;
+        console.log('Roles del usuario en el gremio:', userGuildRoles);
+
+        // Importamos la lista de IDs de rol de administrador desde el middleware
+        // para determinar si el usuario es admin.
+        const { ADMIN_DISCORD_ROLE_IDS } = require('./middleware/auth');
+        isAdminUser = userGuildRoles.some(roleId => ADMIN_DISCORD_ROLE_IDS.includes(roleId));
+
+    } catch (error) {
+        console.error('Error al obtener roles del gremio desde Discord API:', error.response ? error.response.data : error.message);
+        // Si hay un error al obtener los roles (ej. el usuario no está en el gremio),
+        // no se le considerará administrador por rol.
+        isAdminUser = false;
+        userGuildRoles = []; // Asegurarse de que sea un array vacío si falla
+    }
+
+    // Adjuntar la bandera isAdmin y los roles del gremio al perfil para el JWT
+    profile.isAdmin = isAdminUser;
+    profile.guildRoles = userGuildRoles; // Guardamos los roles obtenidos del gremio
 
     return cb(null, profile);
 }));
 
 // --- Importación de Middlewares de Autenticación y Autorización ---
-// Ahora se importan desde un archivo separado para mejor modularidad.
 const { authenticateToken, authorizeAdmin } = require('./middleware/auth');
-// NOTA: 'authenticateToken' ya se aplicará globalmente más abajo.
-// 'authorizeAdmin' se usará específicamente en las rutas que lo requieran.
-
 
 // Aplica el middleware authenticateToken a TODAS las rutas para parsear el JWT si existe.
-// Si no hay token o es inválido, req.user simplemente no se adjuntará, y las rutas que lo necesiten
-// deberán manejarlo (o ser protegidas con authorizeAdmin/authenticateToken en la ruta misma).
 app.use(authenticateToken);
 
 // --- Conexión a la base de datos MongoDB ---
@@ -94,16 +121,18 @@ app.get('/auth/discord/callback',
     }),
     function(req, res) {
         console.log('--- Autenticación Exitosa en Backend (Discord) ---');
-        console.log('Usuario de Discord (req.user):', req.user.username, 'Roles:', req.user.roles);
+        console.log('Usuario de Discord (req.user):', req.user.username, 'isAdmin:', req.user.isAdmin);
+        console.log('Roles de Gremio en JWT:', req.user.guildRoles);
 
-        // Generar un JWT para el usuario autenticado, incluyendo los roles
+        // Generar un JWT para el usuario autenticado, incluyendo la bandera isAdmin y los roles del gremio
         const token = jwt.sign(
             {
                 id: req.user.id,
                 username: req.user.username,
                 discriminator: req.user.discriminator,
                 avatar: req.user.avatar,
-                roles: req.user.roles // Incluir los roles en el JWT
+                isAdmin: req.user.isAdmin, // Incluir la bandera isAdmin en el JWT
+                guildRoles: req.user.guildRoles // ¡IMPORTANTE! Incluir los roles del gremio en el JWT
             },
             process.env.JWT_SECRET,
             { expiresIn: '1h' } // Token expira en 1 hora
@@ -114,18 +143,20 @@ app.get('/auth/discord/callback',
     }
 );
 
-// Ruta para obtener la información del usuario logueado (ahora incluye roles)
+// Ruta para obtener la información del usuario logueado (ahora incluye isAdmin y guildRoles)
 app.get('/api/user', (req, res) => {
     console.log('--- Solicitud a /api/user ---');
     if (req.user) {
-        console.log('Usuario autenticado por JWT:', req.user.username, 'Roles:', req.user.roles);
+        console.log('Usuario autenticado por JWT:', req.user.username, 'isAdmin:', req.user.isAdmin);
+        console.log('Roles de Gremio enviados al frontend:', req.user.guildRoles);
         res.json({
             loggedIn: true,
             id: req.user.id,
             username: req.user.username,
             discriminator: req.user.discriminator,
             avatar: req.user.avatar,
-            roles: req.user.roles // Asegurarse de que los roles se envíen al frontend
+            isAdmin: req.user.isAdmin, // Asegurarse de que isAdmin se envíe al frontend
+            guildRoles: req.user.guildRoles // ¡IMPORTANTE! Enviar los roles del gremio al frontend
         });
     } else {
         console.log('Usuario NO autenticado por JWT.');
@@ -136,14 +167,10 @@ app.get('/api/user', (req, res) => {
 // Ruta para cerrar sesión (con JWT, es más simple: el frontend simplemente descarta el token)
 app.get('/auth/logout', (req, res) => {
     console.log('--- Solicitud de cierre de sesión ---');
-    // En un sistema basado en JWT, el backend no "cierra la sesión" per se.
-    // Simplemente informa al cliente que puede descartar el token.
     res.status(200).json({ message: 'Sesión cerrada exitosamente (token eliminado del cliente).' });
 });
 
 // Importar y usar las rutas de subastas
-// NOTA: routes/auctions.js ahora importará authenticateToken y authorizeAdmin
-// directamente desde ./middleware/auth.js para usarlos en sus rutas específicas.
 const auctionRoutes = require('./routes/auctions');
 app.use('/api/auctions', auctionRoutes); // Las rutas de subastas estarán bajo /api/auctions
 
@@ -158,7 +185,17 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
         });
 
         for (const auction of endedAuctions) {
-            auction.status = 'completed';
+            auction.status = 'finalized';
+            // Establecer ganador y precio final si hubo pujas
+            if (auction.currentBidderId) {
+                auction.winnerId = auction.currentBidderId;
+                auction.winnerName = auction.currentBidderName;
+                auction.finalPrice = auction.currentBid;
+            } else {
+                auction.winnerId = null;
+                auction.winnerName = null;
+                auction.finalPrice = null;
+            }
             await auction.save();
 
             let message;
@@ -178,7 +215,7 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
                     embeds: [{
                         title: `Subasta Finalizada: ${auction.title}`,
                         description: auction.currentBidderId ? `Ganador: **${auction.currentBidderName}**\nPuja Final: **${auction.currentBid} Rublos**` : 'No hubo pujas.',
-                        url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
+                        url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
                         color: embedColor,
                         thumbnail: { url: auction.imageUrl || 'https://via.placeholder.com/150' },
                         footer: { text: `Subasta ID: ${auction._id}` }
@@ -191,9 +228,8 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
     }
 });
 
-
 // Iniciar el servidor
 app.listen(PORT, () => {
     console.log(`Servidor backend escuchando en ${RENDER_BACKEND_URL}`);
-    console.log('Asegúrate de que las variables de entorno de Render (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_CALLBACK_URL, JWT_SECRET, MONGODB_URI, DISCORD_WEBHOOK_URL) sean correctas.');
+    console.log('Asegúrate de que las variables de entorno de Render (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_CALLBACK_URL, JWT_SECRET, MONGODB_URI, DISCORD_WEBHOOK_URL, DISCORD_GUILD_ID) sean correctas.');
 });
