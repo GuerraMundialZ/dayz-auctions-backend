@@ -2,55 +2,19 @@
 const express = require('express');
 const router = express.Router();
 const Auction = require('../models/Auction'); // Importa tu modelo de subasta
-// Importa los middlewares de autenticación y autorización desde server.js
-// Asumimos que server.js los exporta o que son globales, pero es mejor importarlos
-// Para este setup, los middlewares authenticateToken y authorizeAdmin están en server.js
-// y se aplican globalmente o se pueden pasar aquí si se exportaran desde server.js.
-// Para simplificar, asumiremos que authenticateToken se aplica globalmente y authorizeAdmin
-// se usará directamente donde se necesite.
-
-// Si los middlewares estuvieran en un archivo separado como middleware/auth.js:
-// const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
-// Pero como los he puesto en server.js, los usarás directamente en las rutas si no los exportas.
-// Para que esto funcione, necesitas exportarlos de server.js o copiarlos aquí.
-// La forma más limpia es tenerlos en un archivo `middleware/auth.js` y importarlos.
-// Para este ejemplo, voy a asumir que los middlewares están disponibles globalmente o que los copiarás aquí.
-
-// Para que este archivo funcione de forma independiente, necesitamos los middlewares aquí.
-// Copiando los middlewares de auth directamente para este archivo:
-const jwt = require('jsonwebtoken');
-const ADMIN_DISCORD_IDS = ['TU_ID_DE_ADMIN_DISCORD_1', 'TU_ID_DE_ADMIN_DISCORD_2']; // <-- ¡MODIFICA ESTO!
-
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) return res.sendStatus(401);
-
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403);
-        req.user = user;
-        next();
-    });
-};
-
-const authorizeAdmin = (req, res, next) => {
-    const userIsAdmin = ADMIN_DISCORD_IDS.includes(req.user.id);
-    if (!userIsAdmin) {
-        return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de administrador.' });
-    }
-    next();
-};
-// Fin de la copia de middlewares
-
-
 const axios = require('axios'); // Necesario para enviar webhooks a Discord
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL; // Tu webhook para notificaciones
-const FRONTEND_URL = 'https://guerramundialz.github.io'; // <--- ¡Tu URL de GitHub Pages!
+
+// --- IMPORTANTE: Asegúrate de que estos middlewares existan y se exporten desde '../middleware/auth' ---
+const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
+
+// Asegúrate de que estas variables de entorno estén accesibles en tu entorno de ejecución (Render).
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const FRONTEND_URL = 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
 
 // 1. GET /api/auctions - Obtener todas las subastas activas
 router.get('/', async (req, res) => {
     try {
+        // Busca subastas activas cuya fecha de finalización sea mayor que la actual
         const auctions = await Auction.find({ status: 'active', endDate: { $gt: new Date() } }).sort({ endDate: 1 });
         res.json(auctions);
     } catch (error) {
@@ -60,6 +24,8 @@ router.get('/', async (req, res) => {
 });
 
 // 2. POST /api/admin/auctions - Crear una nueva subasta (Solo administradores)
+// Aplica authenticateToken primero para asegurar que req.user esté disponible,
+// luego authorizeAdmin para verificar el rol.
 router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
     const { title, description, imageUrl, startBid, endDate } = req.body;
 
@@ -77,9 +43,10 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
         const newAuction = new Auction({
             title,
             description,
-            imageUrl,
+            // Proporcionar una imagen por defecto si imageUrl está vacío o no se proporciona
+            imageUrl: imageUrl || 'https://via.placeholder.com/300', 
             startBid,
-            currentBid: startBid,
+            currentBid: startBid, // La puja actual empieza con la puja inicial
             endDate: new Date(endDate),
             creatorId: req.user.id,
             creatorName: req.user.username
@@ -89,18 +56,18 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
 
         if (DISCORD_WEBHOOK_URL) {
             axios.post(DISCORD_WEBHOOK_URL, {
-                content: `🚨 ¡Nueva subasta creada por ${req.user.username}! **${newAuction.title}** con puja inicial de ${newAuction.startBid} Rublos. Finaliza el ${newAuction.endDate.toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' })}. ¡Puja ahora en tu web!`,
+                content: `🚨 ¡Nueva subasta creada por **${req.user.username}**! **${newAuction.title}** con puja inicial de **${newAuction.startBid} Rublos**. Finaliza el <t:${Math.floor(newAuction.endDate.getTime() / 1000)}:F>. ¡Puja ahora en la web!`,
                 embeds: [{
                     title: newAuction.title,
                     description: newAuction.description,
-                    url: `$https://guerramundialz.github.io/#auctions`, // <-- ¡MODIFICA ESTO con la URL de tu sitio!
-                    color: 15158332,
-                    image: { url: newAuction.imageUrl || 'https://via.placeholder.com/150' },
+                    url: `${FRONTEND_URL}/#auctions`, // URL CORRECTA
+                    color: 15158332, // Un color vibrante para Discord
+                    image: { url: newAuction.imageUrl }, // Usar la URL que ya tiene el default
                     fields: [
                         { name: "Puja Inicial", value: `${newAuction.startBid} Rublos`, inline: true },
                         { name: "Finaliza", value: `<t:${Math.floor(newAuction.endDate.getTime() / 1000)}:R>`, inline: true }
                     ],
-                    footer: { text: `Creada por ${newAuction.creatorName}` }
+                    footer: { text: `Creada por ${newAuction.creatorName} | ID: ${newAuction._id}` }
                 }]
             }).catch(err => console.error("Error enviando webhook de Discord para nueva subasta:", err.message));
         }
@@ -113,11 +80,17 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
 });
 
 // 3. POST /api/auctions/:id/bid - Realizar una puja
+// Aplica authenticateToken para asegurar que req.user esté disponible.
 router.post('/:id/bid', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { bidAmount } = req.body;
 
-    if (!bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
+    // Verificar que el usuario esté autenticado para pujar
+    if (!req.user || !req.user.id || !req.user.username) {
+        return res.status(401).json({ message: 'Debes iniciar sesión para realizar una puja.' });
+    }
+
+    if (typeof bidAmount !== 'number' || bidAmount <= 0) {
         return res.status(400).json({ message: 'La cantidad de puja debe ser un número positivo.' });
     }
 
@@ -137,21 +110,32 @@ router.post('/:id/bid', authenticateToken, async (req, res) => {
              return res.status(400).json({ message: 'Ya eres el pujador actual. Tu puja debe ser superior para superarte.' });
         }
 
+        // Guardar la puja anterior antes de actualizar la actual
+        const oldBid = auction.currentBid; 
+
         auction.currentBid = bidAmount;
         auction.currentBidderId = req.user.id;
         auction.currentBidderName = req.user.username;
+        // Añadir la puja al historial
+        auction.bidHistory.push({
+            bidderId: req.user.id,
+            bidderName: req.user.username,
+            amount: bidAmount,
+            timestamp: new Date()
+        });
         await auction.save();
 
         if (DISCORD_WEBHOOK_URL) {
             axios.post(DISCORD_WEBHOOK_URL, {
-                content: `🔔 ¡Nueva puja en **${auction.title}**! **${req.user.username}** ha pujado **${bidAmount} Rublos** (anterior: ${auction.currentBid - (bidAmount - auction.currentBid)} Rublos). ¡Supera la oferta!`,
+                // Mensaje más claro para el webhook, usando oldBid
+                content: `🔔 ¡Nueva puja en **${auction.title}**! **${req.user.username}** ha pujado **${bidAmount} Rublos**.`,
                 embeds: [{
                     title: `Nueva Puja en ${auction.title}`,
-                    description: `**${req.user.username}** ha pujado **${bidAmount} Rublos**.\nPuja actual: **${auction.currentBid} Rublos**`,
-                    url: `$https://guerramundialz.github.io/#auctions`, // <-- ¡MODIFICA ESTO con la URL de tu sitio!
-                    color: 3447003,
+                    description: `**${req.user.username}** ha pujado **${bidAmount} Rublos**.\nPuja anterior: **${oldBid} Rublos**\nNueva puja: **${auction.currentBid} Rublos**`,
+                    url: `${FRONTEND_URL}/#auctions`, // URL CORRECTA
+                    color: 3447003, // Color azul para Discord
                     thumbnail: { url: req.user.avatar ? `https://cdn.discordapp.com/avatars/${req.user.id}/${req.user.avatar}.png` : `https://cdn.discordapp.com/embed/avatars/${parseInt(req.user.id) % 5}.png` },
-                    footer: { text: `Finaliza en ${auction.endDate.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}` }
+                    footer: { text: `Finaliza el <t:${Math.floor(auction.endDate.getTime() / 1000)}:R>` }
                 }]
             }).catch(err => console.error("Error enviando webhook de Discord para nueva puja:", err.message));
         }

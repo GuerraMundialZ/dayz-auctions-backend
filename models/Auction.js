@@ -14,7 +14,7 @@ const AuctionSchema = new mongoose.Schema({
     },
     imageUrl: {
         type: String,
-        default: 'https://via.placeholder.com/150', // Imagen por defecto si no se proporciona
+        default: 'https://via.placeholder.com/300', // Sugiero un tamaño más común
         trim: true
     },
     startBid: {
@@ -26,7 +26,10 @@ const AuctionSchema = new mongoose.Schema({
         type: Number,
         required: true,
         min: 0,
-        default: 0 // Se inicializa con startBid en el middleware pre-save
+        // El default de 0 aquí es solo para la definición del esquema.
+        // El middleware pre-save y la lógica en la ruta de creación de subastas
+        // se encargarán de inicializarlo correctamente con startBid.
+        default: 0 
     },
     currentBidderId: { // ID de Discord del usuario que hizo la última puja
         type: String,
@@ -53,14 +56,40 @@ const AuctionSchema = new mongoose.Schema({
         enum: ['active', 'completed', 'cancelled'],
         default: 'active'
     },
+    // --- NUEVO CAMPO: Historial de Pujas ---
+    bidHistory: [
+        {
+            bidderId: {
+                type: String,
+                required: true
+            },
+            bidderName: {
+                type: String,
+                required: true
+            },
+            amount: {
+                type: Number,
+                required: true,
+                min: 0
+            },
+            timestamp: {
+                type: Date,
+                default: Date.now
+            }
+        }
+    ],
+    // --- FIN NUEVO CAMPO ---
     createdAt: {
         type: Date,
         default: Date.now
     }
 });
 
-// Middleware para asegurar que currentBid sea al menos startBid al crear
+// Middleware para asegurar que currentBid sea al menos startBid al crear una nueva subasta
 AuctionSchema.pre('save', function(next) {
+    // Solo aplica esta lógica si es un nuevo documento (isNew)
+    // y si currentBid aún no ha sido establecido (por ejemplo, si se crea sin especificarlo)
+    // o si es 0 (que es el default del esquema, y lo queremos inicializar con startBid)
     if (this.isNew && this.currentBid === 0) {
         this.currentBid = this.startBid;
     }
