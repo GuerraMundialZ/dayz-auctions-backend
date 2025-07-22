@@ -13,13 +13,13 @@ const jwt = require('jsonwebtoken');
 // 3. Ve a "Roles".
 // 4. Haz clic derecho en el rol que quieres que sea administrador y selecciona "Copiar ID".
 const ADMIN_DISCORD_ROLE_IDS = [
-    'TU_ID_DE_ROL_DE_ADMINISTRADOR_AQUI', // Reemplaza con el ID real de tu primer rol de administrador
+    '1397175186935255091', // Reemplaza con el ID real de tu primer rol de administrador
     // Por ejemplo: '123456789012345678', '987654321098765432'
     // Puedes añadir más IDs de rol si tienes varios roles de administrador.
 ];
 
 // Validación para asegurar que ADMIN_DISCORD_ROLE_IDS no esté vacío en producción
-if (process.env.NODE_ENV === 'production' && ADMIN_DISCORD_ROLE_IDS.some(id => id.includes('TU_ID_DE_ROL_DE_ADMINISTRADOR_AQUI'))) {
+if (process.env.NODE_ENV === 'production' && ADMIN_DISCORD_ROLE_IDS.some(id => id.includes('1397175186935255091'))) {
     console.error('ERROR: ADMIN_DISCORD_ROLE_IDS contiene un placeholder. Por favor, reemplázalo con IDs de rol reales en producción.');
     // Considera una acción más drástica aquí en producción si esto es crítico (ej. process.exit(1))
 }
