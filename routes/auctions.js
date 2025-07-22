@@ -45,8 +45,8 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
             description,
             // Proporcionar una imagen por defecto si imageUrl está vacío o no se proporciona
             imageUrl: imageUrl || 'https://via.placeholder.com/300', 
-            startBid,
-            currentBid: startBid, // La puja actual empieza con la puja inicial
+            startBid: parseFloat(startBid), // Asegúrate de que sea un número
+            currentBid: parseFloat(startBid), // La puja actual empieza con la puja inicial
             endDate: new Date(endDate),
             creatorId: req.user.id,
             creatorName: req.user.username
@@ -60,7 +60,7 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
                 embeds: [{
                     title: newAuction.title,
                     description: newAuction.description,
-                    url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
+                    url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
                     color: 15158332, // Un color vibrante para Discord
                     image: { url: newAuction.imageUrl }, // Usar la URL que ya tiene el default
                     fields: [
@@ -78,6 +78,64 @@ router.post('/admin', authenticateToken, authorizeAdmin, async (req, res) => {
         res.status(500).json({ message: 'Error al crear la subasta.' });
     }
 });
+
+// NUEVA RUTA: 4. PUT /api/auctions/:id - Actualizar una subasta existente (Solo administradores)
+router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { title, description, imageUrl, startBid, endDate, currentBid, currentBidderId, currentBidderName, status } = req.body;
+
+    // Validación básica: los campos obligatorios deben estar presentes
+    if (!title || !description || !startBid || !endDate) {
+        return res.status(400).json({ message: 'Todos los campos obligatorios (título, descripción, puja inicial, fecha de fin) son necesarios para actualizar.' });
+    }
+
+    if (new Date(endDate) <= new Date()) {
+        return res.status(400).json({ message: 'La fecha de finalización debe ser en el futuro.' });
+    }
+
+    try {
+        const updatedAuction = await Auction.findByIdAndUpdate(id, {
+            title,
+            description,
+            imageUrl: imageUrl || 'https://via.placeholder.com/300', // Mantener imagen por defecto
+            startBid: parseFloat(startBid),
+            endDate: new Date(endDate),
+            // Permitir que se actualice la puja actual y el pujador, pero con cuidado desde el admin
+            currentBid: parseFloat(currentBid), 
+            currentBidderId: currentBidderId || null,
+            currentBidderName: currentBidderName || null,
+            status: status || 'active' // Puedes permitir cambiar el estado, por ejemplo, a 'finalized'
+        }, { new: true, runValidators: true }); // `new: true` devuelve el documento modificado, `runValidators: true` asegura que se ejecuten las validaciones del esquema
+
+        if (!updatedAuction) {
+            return res.status(404).json({ message: 'Subasta no encontrada para actualizar.' });
+        }
+
+        res.json({ message: 'Subasta actualizada con éxito.', auction: updatedAuction });
+    } catch (error) {
+        console.error('Error updating auction:', error);
+        res.status(500).json({ message: 'Error al actualizar la subasta.' });
+    }
+});
+
+// NUEVA RUTA: 5. DELETE /api/auctions/:id - Eliminar una subasta (Solo administradores)
+router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const deletedAuction = await Auction.findByIdAndDelete(id);
+
+        if (!deletedAuction) {
+            return res.status(404).json({ message: 'Subasta no encontrada para eliminar.' });
+        }
+
+        res.json({ message: 'Subasta eliminada con éxito.' });
+    } catch (error) {
+        console.error('Error deleting auction:', error);
+        res.status(500).json({ message: 'Error al eliminar la subasta.' });
+    }
+});
+
 
 // 3. POST /api/auctions/:id/bid - Realizar una puja
 // Aplica authenticateToken para asegurar que req.user esté disponible.
@@ -106,8 +164,9 @@ router.post('/:id/bid', authenticateToken, async (req, res) => {
         if (bidAmount <= auction.currentBid) {
             return res.status(400).json({ message: `Tu puja (${bidAmount} Rublos) debe ser mayor que la puja actual (${auction.currentBid} Rublos).` });
         }
-        if (req.user.id === auction.currentBidderId) {
-             return res.status(400).json({ message: 'Ya eres el pujador actual. Tu puja debe ser superior para superarte.' });
+        // NUEVA VALIDACIÓN: Si ya eres el pujador actual, tu puja debe ser estrictamente mayor para superarte a ti mismo
+        if (req.user.id === auction.currentBidderId && bidAmount <= auction.currentBid) {
+            return res.status(400).json({ message: 'Ya eres el pujador actual. Tu puja debe ser superior para superarte.' });
         }
 
         // Guardar la puja anterior antes de actualizar la actual
@@ -132,7 +191,7 @@ router.post('/:id/bid', authenticateToken, async (req, res) => {
                 embeds: [{
                     title: `Nueva Puja en ${auction.title}`,
                     description: `**${req.user.username}** ha pujado **${bidAmount} Rublos**.\nPuja anterior: **${oldBid} Rublos**\nNueva puja: **${auction.currentBid} Rublos**`,
-                    url: `https://guerramundialz.github.io/subastas.html`, // URL CORRECTA
+                    url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
                     color: 3447003, // Color azul para Discord
                     thumbnail: { url: req.user.avatar ? `https://cdn.discordapp.com/avatars/${req.user.id}/${req.user.avatar}.png` : `https://cdn.discordapp.com/embed/avatars/${parseInt(req.user.id) % 5}.png` },
                     footer: { text: `Finaliza el <t:${Math.floor(auction.endDate.getTime() / 1000)}:R>` }
