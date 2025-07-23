@@ -19,7 +19,7 @@ const ADMIN_DISCORD_ROLE_IDS = [
 ];
 
 // Validación para asegurar que ADMIN_DISCORD_ROLE_IDS no esté vacío en producción
-if (process.env.NODE_ENV === 'production' && ADMIN_DISCORD_ROLE_IDS.some(id => id.includes('1397175186935255091'))) {
+if (process.env.NODE_ENV === 'production' && ADMIN_DISCORD_ROLE_IDS.some(id => id.includes('TU_ID_DE_ROL_DE_ADMINISTRADOR_AQUI'))) {
     console.error('ERROR: ADMIN_DISCORD_ROLE_IDS contiene un placeholder. Por favor, reemplázalo con IDs de rol reales en producción.');
     // Considera una acción más drástica aquí en producción si esto es crítico (ej. process.exit(1))
 }
