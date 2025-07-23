@@ -18,7 +18,7 @@ const FRONTEND_URL = 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub P
 
 // ¡IMPORTANTE! Reemplaza con el ID de tu SERVIDOR (GUILD) de Discord.
 // Necesario para verificar los roles del usuario en ese servidor.
-const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || 'TU_ID_DE_SERVIDOR_DISCORD_AQUI'; // <-- ¡CONFIRMA ESTE ID!
+const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '966528764878131240'; // <-- ¡CONFIRMA ESTE ID!
 
 // URL del Webhook de Discord para notificaciones.
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
