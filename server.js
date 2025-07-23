@@ -22,7 +22,7 @@ const io = new Server(server, { // Initialize Socket.IO with the HTTP server
 const PORT = process.env.PORT || 3000;
 
 // This will be the URL of your backend deployed on Render.
-const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com`;
+const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com/auth/discord/callback`;
 // This will be the URL of your GitHub Pages frontend.
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://guerramundialz.github.io'; // Your GitHub Pages URL!
 
