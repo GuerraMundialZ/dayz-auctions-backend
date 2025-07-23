@@ -21,6 +21,6 @@
     "node-cron": "^4.2.1",
     "passport": "^0.7.0",
     "passport-discord": "^0.1.4",
-    "socket.io": "^4.7.5"  // Added socket.io dependency
+    "socket.io": "^4.7.5"
   }
 }
