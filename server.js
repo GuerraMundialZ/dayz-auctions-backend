@@ -47,7 +47,7 @@ app.use(express.json());
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    callbackURL: `${RENDER_BACKEND_URL}/auth/discord/callback`, // Must match the redirect URI in your Discord application settings
+    callbackURL: `${RENDER_BACKEND_URL}/api/auth/discord/callback`, // Must match the redirect URI in your Discord application settings
     scope: ['identify', 'guilds', 'guilds.members.read'] // Request necessary scopes: identify (user info), guilds (user's guilds), guilds.members.read (user's roles in guilds)
 }, async (accessToken, refreshToken, profile, done) => {
     try {
