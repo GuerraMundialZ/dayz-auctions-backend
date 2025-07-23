@@ -22,7 +22,7 @@ const io = new Server(server, { // Initialize Socket.IO with the HTTP server
 const PORT = process.env.PORT || 3000;
 
 // This will be the URL of your backend deployed on Render.
-const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com/auth/discord/callback`;
+const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com`;
 // This will be the URL of your GitHub Pages frontend.
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://guerramundialz.github.io'; // Your GitHub Pages URL!
 
@@ -47,7 +47,7 @@ app.use(express.json());
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    callbackURL: `${RENDER_BACKEND_URL}/api/auth/discord/callback`, // Must match the redirect URI in your Discord application settings
+    callbackURL: `${RENDER_BACKEND_URL}/auth/discord/callback`, // Must match the redirect URI in your Discord application settings
     scope: ['identify', 'guilds', 'guilds.members.read'] // Request necessary scopes: identify (user info), guilds (user's guilds), guilds.members.read (user's roles in guilds)
 }, async (accessToken, refreshToken, profile, done) => {
     try {
