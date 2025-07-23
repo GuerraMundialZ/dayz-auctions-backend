@@ -7,14 +7,24 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 const axios = require('axios'); // Necesario para hacer llamadas a la API de Discord
+const http = require('http'); // Importar módulo HTTP para Socket.IO
+const { Server } = require('socket.io'); // Importar Server de Socket.IO
 
 const app = express();
+const server = http.createServer(app); // Crear servidor HTTP a partir de la app Express
+const io = new Server(server, { // Inicializar Socket.IO con el servidor HTTP
+    cors: {
+        origin: process.env.FRONTEND_URL || 'https://guerramundialz.github.io', // Permitir CORS para tu frontend
+        methods: ["GET", "POST", "PUT", "DELETE"]
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 // Esta será la URL de tu backend desplegado en Render.
 const RENDER_BACKEND_URL = process.env.RENDER_BACKEND_URL || `https://guerra-mundial-z-backend.onrender.com`;
 // Esta será la URL de tu frontend de GitHub Pages.
-const FRONTEND_URL = 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
 
 // ¡IMPORTANTE! Reemplaza con el ID de tu SERVIDOR (GUILD) de Discord.
 // Necesario para verificar los roles del usuario en ese servidor.
@@ -102,6 +112,9 @@ mongoose.connect(process.env.MONGODB_URI)
 // Importar el modelo de Subasta (necesario para el cron job y rutas)
 const Auction = require('./models/Auction');
 
+// Hacer que la instancia de Socket.IO sea accesible en las rutas
+app.set('socketio', io);
+
 // --- Rutas del Servidor ---
 
 // 1. Ruta raíz para verificar que el backend está funcionando
@@ -172,7 +185,8 @@ app.get('/auth/logout', (req, res) => {
 
 // Importar y usar las rutas de subastas
 const auctionRoutes = require('./routes/auctions');
-app.use('/api/auctions', auctionRoutes); // Las rutas de subastas estarán bajo /api/auctions
+// Pasar la instancia de io a las rutas de subastas
+app.use('/api/auctions', auctionRoutes(io)); // Las rutas de subastas ahora son una función que recibe 'io'
 
 // --- Tarea Programada para Finalizar Subastas ---
 cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
@@ -214,7 +228,7 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
                     content: message,
                     embeds: [{
                         title: `Subasta Finalizada: ${auction.title}`,
-                        description: auction.currentBidderId ? `Ganador: **${auction.currentBidderName}**\nPuja Final: **${auction.currentBid} Rublos**` : 'No hubo pujas.',
+                        description: auction.currentBidderId ? `Ganador: **${auction.currentBidderName}**\nPuja Final: **${auction.finalPrice} Rublos**` : 'No hubo pujas.',
                         url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
                         color: embedColor,
                         thumbnail: { url: auction.imageUrl || 'https://via.placeholder.com/150' },
@@ -222,14 +236,27 @@ cron.schedule('* * * * *', async () => { // Se ejecuta cada minuto
                     }]
                 }).catch(err => console.error("Error enviando webhook de fin de subasta:", err.message));
             }
+
+            // Emitir evento de Socket.IO para notificar a los clientes sobre la subasta actualizada
+            io.emit('auctionUpdated', auction);
         }
     } catch (error) {
         console.error('Error en la tarea programada de subastas:', error);
     }
 });
 
-// Iniciar el servidor
-app.listen(PORT, () => {
+// Manejo de conexiones de Socket.IO
+io.on('connection', (socket) => {
+    console.log('Cliente conectado a Socket.IO:', socket.id);
+
+    socket.on('disconnect', () => {
+        console.log('Cliente desconectado de Socket.IO:', socket.id);
+    });
+});
+
+
+// Iniciar el servidor HTTP (no la app Express directamente)
+server.listen(PORT, () => {
     console.log(`Servidor backend escuchando en ${RENDER_BACKEND_URL}`);
     console.log('Asegúrate de que las variables de entorno de Render (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_CALLBACK_URL, JWT_SECRET, MONGODB_URI, DISCORD_WEBHOOK_URL, DISCORD_GUILD_ID) sean correctas.');
 });
