@@ -1,120 +1,120 @@
 // routes/auctions.js
 const express = require('express');
-const Auction = require('../models/Auction'); // Import your auction model
-const axios = require('axios'); // Required to send Discord webhooks
+const Auction = require('../models/Auction'); // Importa tu modelo de subasta
+const axios = require('axios'); // Necesario para enviar webhooks a Discord
 
-// --- IMPORTANT: Make sure these middlewares exist and are exported from '../middleware/auth' ---
-// It is assumed that authenticateToken attaches req.user and authorizeAdmin verifies if req.user is admin.
+// --- IMPORTANTE: Asegúrate de que estos middlewares existan y se exporten desde '../middleware/auth' ---
+// Se asume que authenticateToken adjunta req.user y authorizeAdmin verifica si req.user es admin.
 const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
 
-// Make sure these environment variables are accessible in your runtime environment (Render).
+// Asegúrate de que estas variables de entorno estén accesibles en tu entorno de ejecución (Render).
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://guerramundialz.github.io'; // Your GitHub Pages URL!
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://guerramundialz.github.io'; // ¡Tu URL de GitHub Pages!
 
-// Export a function that receives the io instance
+// Exportar una función que reciba la instancia de io
 module.exports = (io) => {
     const router = express.Router();
 
-    // 1. GET /api/auctions - Get ALL auctions (for the administration panel)
-    // This route is now protected for administrators and returns all auctions (active, finalized, canceled).
+    // 1. GET /api/auctions - Obtener TODAS las subastas (para el panel de administración)
+    // Esta ruta ahora está protegida para administradores y devuelve todas las subastas (activas, finalizadas, canceladas).
     router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
         try {
             const auctions = await Auction.find().sort({ endDate: 1 });
             res.json(auctions);
         } catch (error) {
             console.error('Error fetching all auctions for admin:', error);
-            res.status(500).json({ message: 'Error getting auctions for administration.' });
+            res.status(500).json({ message: 'Error al obtener las subastas para administración.' });
         }
     });
 
-    // 2. GET /api/auctions/active - Get only active auctions (for the user auction page)
-    // This is the route that normal users will use to view active auctions.
+    // 2. GET /api/auctions/active - Obtener solo subastas activas (para la página de subastas de usuario)
+    // Esta es la ruta que usarán los usuarios normales para ver las subastas activas.
     router.get('/active', async (req, res) => {
         try {
-            // Search for active auctions whose end date is greater than the current date
+            // Busca subastas activas cuya fecha de finalización sea mayor que la actual
             const auctions = await Auction.find({ status: 'active', endDate: { $gt: new Date() } }).sort({ endDate: 1 });
             res.json(auctions);
         } catch (error) {
             console.error('Error fetching active auctions:', error);
-            res.status(500).json({ message: 'Error getting active auctions.' });
+            res.status(500).json({ message: 'Error al obtener las subastas activas.' });
         }
     });
 
-    // 3. GET /api/auctions/:id - Get a specific auction by ID (for editing in admin)
-    // Protected for administrators
+    // 3. GET /api/auctions/:id - Obtener una subasta específica por ID (para edición en admin)
+    // Protegida para administradores
     router.get('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
         try {
             const auction = await Auction.findById(req.params.id);
             if (!auction) {
-                return res.status(404).json({ message: 'Auction not found.' });
+                return res.status(404).json({ message: 'Subasta no encontrada.' });
             }
             res.json(auction);
         } catch (error) {
             console.error('Error fetching single auction:', error);
-            res.status(500).json({ message: 'Error getting auction.' });
+            res.status(500).json({ message: 'Error al obtener la subasta.' });
         }
     });
 
-    // 4. POST /api/auctions - Create a new auction (Administrators only)
-    // The route is now '/', consistent with the administration panel frontend
+    // 4. POST /api/auctions - Crear una nueva subasta (Solo administradores)
+    // La ruta es ahora '/', consistente con el frontend del panel de administración
     router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
         const { title, description, imageUrl, startBid, endDate } = req.body;
 
         if (!title || !description || !startBid || !endDate) {
-            return res.status(400).json({ message: 'All fields are required.' });
+            return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
         }
         const parsedEndDate = new Date(endDate);
         if (isNaN(parsedEndDate.getTime()) || parsedEndDate <= new Date()) {
-            return res.status(400).json({ message: 'The end date must be a valid future date.' });
+            return res.status(400).json({ message: 'La fecha de finalización debe ser una fecha futura válida.' });
         }
         if (startBid < 0) {
-            return res.status(400).json({ message: 'The starting bid cannot be negative.' });
+            return res.status(400).json({ message: 'La puja inicial no puede ser negativa.' });
         }
 
         try {
             const newAuction = new Auction({
                 title,
                 description,
-                imageUrl: imageUrl || 'https://via.placeholder.com/300x200?text=No+Image', // Use default image if not provided
+                imageUrl: imageUrl || 'https://via.placeholder.com/300x200?text=No+Image', // Usar imagen por defecto si no se proporciona
                 startBid: parseFloat(startBid),
-                currentBid: parseFloat(startBid), // Current bid starts with the starting bid
+                currentBid: parseFloat(startBid), // La puja actual empieza con la puja inicial
                 endDate: parsedEndDate,
                 creatorId: req.user.id,
                 creatorName: req.user.username,
-                status: 'active' // Ensure initial status is active
+                status: 'active' // Asegurarse de que el estado inicial sea activo
             });
 
             await newAuction.save();
 
             if (DISCORD_WEBHOOK_URL) {
                 axios.post(DISCORD_WEBHOOK_URL, {
-                    content: `🚨 New auction created by **${newAuction.creatorName}**! **${newAuction.title}** with a starting bid of **${newAuction.startBid} Rubles**. Ends <t:${Math.floor(newAuction.endDate.getTime() / 1000)}:F>. Bid now on the website!`,
+                    content: `🚨 ¡Nueva subasta creada por **${newAuction.creatorName}**! **${newAuction.title}** con puja inicial de **${newAuction.startBid} Rublos**. Finaliza el <t:${Math.floor(newAuction.endDate.getTime() / 1000)}:F>. ¡Puja ahora en la web!`,
                     embeds: [{
                         title: newAuction.title,
                         description: newAuction.description,
-                        url: `${FRONTEND_URL}/subastas.html`, // CORRECT URL
-                        color: 15158332, // A vibrant color for Discord
+                        url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
+                        color: 15158332, // Un color vibrante para Discord
                         image: { url: newAuction.imageUrl },
                         fields: [
-                            { name: "Starting Bid", value: `${newAuction.startBid} Rubles`, inline: true },
-                            { name: "Ends", value: `<t:${Math.floor(newAuction.endDate.getTime() / 1000)}:R>`, inline: true }
+                            { name: "Puja Inicial", value: `${newAuction.startBid} Rublos`, inline: true },
+                            { name: "Finaliza", value: `<t:${Math.floor(newAuction.endDate.getTime() / 1000)}:R>`, inline: true }
                         ],
-                        footer: { text: `Created by ${newAuction.creatorName} | ID: ${newAuction._id}` }
+                        footer: { text: `Creada por ${newAuction.creatorName} | ID: ${newAuction._id}` }
                     }]
-                }).catch(err => console.error("Error sending Discord webhook for new auction:", err.message));
+                }).catch(err => console.error("Error enviando webhook de Discord para nueva subasta:", err.message));
             }
 
-            // Emit Socket.IO event when a new auction is created
+            // Emitir evento de Socket.IO cuando se crea una nueva subasta
             io.emit('auctionUpdated', newAuction);
 
             res.status(201).json(newAuction);
         } catch (error) {
             console.error('Error creating auction:', error);
-            res.status(500).json({ message: 'Error creating auction.' });
+            res.status(500).json({ message: 'Error al crear la subasta.' });
         }
     });
 
-    // 5. PUT /api/auctions/:id - Update an existing auction (Administrators only)
+    // 5. PUT /api/auctions/:id - Actualizar una subasta existente (Solo administradores)
     router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
         const { id } = req.params;
         const { title, description, imageUrl, startBid, endDate, currentBid, currentBidderId, currentBidderName, status } = req.body;
@@ -122,10 +122,10 @@ module.exports = (io) => {
         try {
             const auction = await Auction.findById(id);
             if (!auction) {
-                return res.status(404).json({ message: 'Auction not found to update.' });
+                return res.status(404).json({ message: 'Subasta no encontrada para actualizar.' });
             }
 
-            // Update fields if provided
+            // Actualizar campos si se proporcionan
             if (title !== undefined) auction.title = title;
             if (description !== undefined) auction.description = description;
             if (imageUrl !== undefined) auction.imageUrl = imageUrl || 'https://via.placeholder.com/300x200?text=No+Image';
@@ -133,42 +133,42 @@ module.exports = (io) => {
             if (endDate !== undefined) {
                 const parsedEndDate = new Date(endDate);
                 if (isNaN(parsedEndDate.getTime())) {
-                    return res.status(400).json({ message: 'The end date is not valid.' });
+                    return res.status(400).json({ message: 'La fecha de finalización no es válida.' });
                 }
                 auction.endDate = parsedEndDate;
             }
-            // Allow admin to adjust current bid and bidder if necessary
+            // Permitir que el admin pueda ajustar la puja actual y el pujador si es necesario
             if (currentBid !== undefined) auction.currentBid = parseFloat(currentBid);
             if (currentBidderId !== undefined) auction.currentBidderId = currentBidderId;
             if (currentBidderName !== undefined) auction.currentBidderName = currentBidderName;
-            if (status !== undefined) auction.status = status; // Allow changing status
+            if (status !== undefined) auction.status = status; // Permitir cambiar el estado
 
-            // Additional validations before saving
+            // Validaciones adicionales antes de guardar
             if (auction.startBid < 0) {
-                return res.status(400).json({ message: 'The starting bid cannot be negative.' });
+                return res.status(400).json({ message: 'La puja inicial no puede ser negativa.' });
             }
             if (auction.currentBid < 0) {
-                return res.status(400).json({ message: 'The current bid cannot be negative.' });
+                return res.status(400).json({ message: 'La puja actual no puede ser negativa.' });
             }
-            // If status is changed to 'active', end date must be in the future
+            // Si el estado se cambia a 'active', la fecha de fin debe ser futura
             if (auction.status === 'active' && auction.endDate <= new Date()) {
-                return res.status(400).json({ message: 'Cannot activate an auction with a past end date.' });
+                return res.status(400).json({ message: 'No se puede activar una subasta con fecha de finalización pasada.' });
             }
 
 
             await auction.save();
 
-            // Emit Socket.IO event when an auction is updated
+            // Emitir evento de Socket.IO cuando se actualiza una subasta
             io.emit('auctionUpdated', auction);
 
-            res.json({ message: 'Auction updated successfully.', auction });
+            res.json({ message: 'Subasta actualizada con éxito.', auction });
         } catch (error) {
             console.error('Error updating auction:', error);
-            res.status(500).json({ message: 'Error updating auction.' });
+            res.status(500).json({ message: 'Error al actualizar la subasta.' });
         }
     });
 
-    // 6. DELETE /api/auctions/:id - Delete an auction (Administrators only)
+    // 6. DELETE /api/auctions/:id - Eliminar una subasta (Solo administradores)
     router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
         const { id } = req.params;
 
@@ -176,20 +176,20 @@ module.exports = (io) => {
             const deletedAuction = await Auction.findByIdAndDelete(id);
 
             if (!deletedAuction) {
-                return res.status(404).json({ message: 'Auction not found to delete.' });
+                return res.status(404).json({ message: 'Subasta no encontrada para eliminar.' });
             }
 
-            // Emit Socket.IO event when an auction is deleted
+            // Emitir evento de Socket.IO cuando se elimina una subasta
             io.emit('auctionDeleted', deletedAuction._id);
 
-            res.json({ message: 'Auction deleted successfully.' });
+            res.json({ message: 'Subasta eliminada con éxito.' });
         } catch (error) {
             console.error('Error deleting auction:', error);
-            res.status(500).json({ message: 'Error deleting auction.' });
+            res.status(500).json({ message: 'Error al eliminar la subasta.' });
         }
     });
 
-    // 7. POST /api/auctions/:id/finalize - Manually finalize an auction (Administrators only)
+    // 7. POST /api/auctions/:id/finalize - Finalizar una subasta manualmente (Solo administradores)
     router.post('/:id/finalize', authenticateToken, authorizeAdmin, async (req, res) => {
         const { id } = req.params;
 
@@ -197,15 +197,15 @@ module.exports = (io) => {
             const auction = await Auction.findById(id);
 
             if (!auction) {
-                return res.status(404).json({ message: 'Auction not found.' });
+                return res.status(404).json({ message: 'Subasta no encontrada.' });
             }
 
             if (auction.status === 'finalized' || auction.status === 'cancelled') {
-                return res.status(400).json({ message: `The auction is already ${auction.status}.` });
+                return res.status(400).json({ message: `La subasta ya está ${auction.status}.` });
             }
 
             auction.status = 'finalized';
-            // If there is a current bidder, that is the winner
+            // Si hay un pujador actual, ese es el ganador
             if (auction.currentBidderId) {
                 auction.winnerId = auction.currentBidderId;
                 auction.winnerName = auction.currentBidderName;
@@ -213,87 +213,87 @@ module.exports = (io) => {
             } else {
                 auction.winnerId = null;
                 auction.winnerName = null;
-                auction.finalPrice = null; // Or the starting price if there were no bids and you want it to be that
+                auction.finalPrice = null; // O el precio inicial si no hubo pujas y quieres que sea ese
             }
-            auction.endDate = new Date(); // Set end date to now
+            auction.endDate = new Date(); // Establecer la fecha de fin a ahora
 
             await auction.save();
 
-            // Optional: Send a Discord webhook to notify manual finalization
+            // Opcional: Enviar un webhook de Discord para notificar la finalización manual
             if (DISCORD_WEBHOOK_URL) {
                 let message = '';
-                let embedColor = 5793266; // A green color for Discord (hex 0x57F287)
+                let embedColor = 5793266; // Un color verde para Discord (hex 0x57F287)
 
                 if (auction.winnerId) {
-                    message = `🎉 Auction **${auction.title}** has been manually finalized! Winner: **${auction.winnerName}** with **${auction.finalPrice} Rubles**.`;
+                    message = `🎉 ¡Subasta **${auction.title}** ha sido finalizada manualmente! Ganador: **${auction.winnerName}** con **${auction.finalPrice} Rublos**.`;
                 } else {
-                    message = `⚠️ Auction **${auction.title}** has been manually finalized with no bids.`;
-                    embedColor = 10038562; // A gray/red color for Discord (hex 0x99AAB5)
+                    message = `⚠️ Subasta **${auction.title}** ha sido finalizada manualmente sin pujas.`;
+                    embedColor = 10038562; // Un color gris/rojo para Discord (hex 0x99AAB5)
                 }
 
                 axios.post(DISCORD_WEBHOOK_URL, {
                     content: message,
                     embeds: [{
-                        title: `Auction Manually Finalized: ${auction.title}`,
-                        description: auction.winnerId ? `Winner: **${auction.winnerName}**\nFinal Bid: **${auction.finalPrice} Rubles**` : 'No bids.',
+                        title: `Subasta Finalizada Manualmente: ${auction.title}`,
+                        description: auction.winnerId ? `Ganador: **${auction.winnerName}**\nPuja Final: **${auction.finalPrice} Rublos**` : 'No hubo pujas.',
                         url: `${FRONTEND_URL}/subastas.html`,
                         color: embedColor,
                         thumbnail: { url: auction.imageUrl || 'https://via.placeholder.com/150' },
-                        footer: { text: `Auction ID: ${auction._id}` }
+                        footer: { text: `Subasta ID: ${auction._id}` }
                     }]
-                }).catch(err => console.error("Error sending Discord webhook for manual auction end:", err.message));
+                }).catch(err => console.error("Error enviando webhook de fin de subasta manual:", err.message));
             }
 
-            // Emit Socket.IO event when an auction is manually finalized
+            // Emitir evento de Socket.IO cuando se finaliza una subasta manualmente
             io.emit('auctionUpdated', auction);
 
-            res.json({ message: 'Auction manually finalized successfully.', auction });
+            res.json({ message: 'Subasta finalizada manualmente con éxito.', auction });
         } catch (error) {
             console.error('Error finalizing auction manually:', error);
-            res.status(500).json({ message: 'Error manually finalizing auction.' });
+            res.status(500).json({ message: 'Error al finalizar la subasta manualmente.' });
         }
     });
 
 
-    // 8. POST /api/auctions/:id/bid - Place a bid
-    // Apply authenticateToken to ensure req.user is available.
+    // 8. POST /api/auctions/:id/bid - Realizar una puja
+    // Aplica authenticateToken para asegurar que req.user esté disponible.
     router.post('/:id/bid', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { bidAmount } = req.body;
 
-        // Verify that the user is authenticated to bid
+        // Verificar que el usuario esté autenticado para pujar
         if (!req.user || !req.user.id || !req.user.username) {
-            return res.status(401).json({ message: 'You must log in to place a bid.' });
+            return res.status(401).json({ message: 'Debes iniciar sesión para realizar una puja.' });
         }
 
         if (typeof bidAmount !== 'number' || bidAmount <= 0) {
-            return res.status(400).json({ message: 'The bid amount must be a positive number.' });
+            return res.status(400).json({ message: 'La cantidad de puja debe ser un número positivo.' });
         }
 
         try {
             const auction = await Auction.findById(id);
 
             if (!auction) {
-                return res.status(404).json({ message: 'Auction not found.' });
+                return res.status(404).json({ message: 'Subasta no encontrada.' });
             }
             if (auction.status !== 'active' || auction.endDate <= new Date()) {
-                return res.status(400).json({ message: 'This auction is not active or has already ended.' });
+                return res.status(400).json({ message: 'Esta subasta no está activa o ya ha finalizado.' });
             }
             if (bidAmount <= auction.currentBid) {
-                return res.status(400).json({ message: `Your bid (${bidAmount} Rubles) must be greater than the current bid (${auction.currentBid} Rubles).` });
+                return res.status(400).json({ message: `Tu puja (${bidAmount} Rublos) debe ser mayor que la puja actual (${auction.currentBid} Rublos).` });
             }
-            // Additional validation: If you are already the current bidder, your bid must be strictly higher to outbid yourself
+            // Validación adicional: Si ya eres el pujador actual, tu puja debe ser estrictamente mayor para superarte a ti mismo
             if (req.user.id === auction.currentBidderId && bidAmount <= auction.currentBid) {
-                 return res.status(400).json({ message: 'You are already the current bidder. Your bid must be higher to outbid yourself.' });
+                 return res.status(400).json({ message: 'Ya eres el pujador actual. Tu puja debe ser superior para superarte.' });
             }
 
-            // Save the previous bid before updating the current one
+            // Guardar la puja anterior antes de actualizar la actual
             const oldBid = auction.currentBid;
 
             auction.currentBid = bidAmount;
             auction.currentBidderId = req.user.id;
             auction.currentBidderName = req.user.username;
-            // Add the bid to the history
+            // Añadir la puja al historial
             auction.bidHistory.push({
                 bidderId: req.user.id,
                 bidderName: req.user.username,
@@ -304,26 +304,26 @@ module.exports = (io) => {
 
             if (DISCORD_WEBHOOK_URL) {
                 axios.post(DISCORD_WEBHOOK_URL, {
-                    // Clearer message for the webhook, using oldBid
-                    content: `🔔 New bid on **${auction.title}**! **${req.user.username}** has bid **${bidAmount} Rubles**.`,
+                    // Mensaje más claro para el webhook, usando oldBid
+                    content: `🔔 ¡Nueva puja en **${auction.title}**! **${req.user.username}** ha pujado **${bidAmount} Rublos**.`,
                     embeds: [{
-                        title: `New Bid on ${auction.title}`,
-                        description: `**${req.user.username}** has bid **${bidAmount} Rubles**.\nPrevious Bid: **${oldBid} Rubles**\nNew Bid: **${auction.currentBid} Rubles**`,
-                        url: `${FRONTEND_URL}/subastas.html`, // CORRECT URL
-                        color: 3447003, // Blue color for Discord
+                        title: `Nueva Puja en ${auction.title}`,
+                        description: `**${req.user.username}** ha pujado **${bidAmount} Rublos**.\nPuja anterior: **${oldBid} Rublos**\nNueva puja: **${auction.currentBid} Rublos**`,
+                        url: `${FRONTEND_URL}/subastas.html`, // URL CORRECTA
+                        color: 3447003, // Color azul para Discord
                         thumbnail: { url: req.user.avatar ? `https://cdn.discordapp.com/avatars/${req.user.id}/${req.user.avatar}.png` : `https://cdn.discordapp.com/embed/avatars/${parseInt(req.user.id) % 5}.png` },
-                        footer: { text: `Ends <t:${Math.floor(auction.endDate.getTime() / 1000)}:R>` }
+                        footer: { text: `Finaliza el <t:${Math.floor(auction.endDate.getTime() / 1000)}:R>` }
                     }]
-                }).catch(err => console.error("Error sending Discord webhook for new bid:", err.message));
+                }).catch(err => console.error("Error enviando webhook de Discord para nueva puja:", err.message));
             }
 
-            // Emit Socket.IO event when a bid is placed
+            // Emitir evento de Socket.IO cuando se realiza una puja
             io.emit('auctionUpdated', auction);
 
-            res.json({ message: 'Bid placed successfully.', auction });
+            res.json({ message: 'Puja realizada con éxito.', auction });
         } catch (error) {
             console.error('Error placing bid:', error);
-            res.status(500).json({ message: 'Error placing bid.' });
+            res.status(500).json({ message: 'Error al realizar la puja.' });
         }
     });
 
