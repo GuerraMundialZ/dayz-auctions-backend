@@ -149,7 +149,7 @@ app.get('/auth/discord/callback',
 );
 
 // Route to get authenticated user info (protected)
-app.get('/api/auth/user', authenticateToken, async (req, res) => {
+app.get('/auth/user', authenticateToken, async (req, res) => {
     // req.user contains the decoded JWT payload, which now includes isAdmin
     res.json({
         id: req.user.id,
